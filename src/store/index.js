@@ -1,30 +1,32 @@
 import Vue from 'vue'
-import Vuex from 'vuex'
+import Vuex, { Store } from 'vuex'
+
+import * as storage from './storage';
 
 Vue.use(Vuex)
 
 export default new Vuex.Store({
 	state: {
 		gameIsOver: false,
-		isBotTurn: false,
-		singlePlayer: {
-			botCount: 0,
-			playerCount: 0,
+		bot: {
+			symbol: null,
+			id: null,
+			isHisTurn: false,
+			isWinner: false
 		},
-		multiplayer: {
-			player: {
-				symbol: "",
-				id: "",
-				isHisTurn: false,
-			},
-			count: {
-				firstPlayer: 0,
-				secondPlayer: 0
-			},
-			turn: {
-				firstPlayerTurn: true,
-				secondPlayerTurn: false
-			}
+		player: {
+			symbol: null,
+			id: null,
+			isHisTurn: false,
+			isWinner: false
+		},
+		count: {
+			firstPlayer: 0,
+			secondPlayer: 0
+		},
+		turn: {
+			isFirstPlayerTurn: false,
+			isSecondPlayerTurn: false
 		},
 		squares: [
 			{ id: 1, value: "", isHighlighted: false }, 
@@ -47,256 +49,381 @@ export default new Vuex.Store({
 			[1, 4, 7],
 			[2, 5, 8]
 		],
-		mode: 'multiplayer',
+		mode: '',
 	},
 	actions: {
-		singlePlayerModeHandler({ commit, state }, index) {
-			if (state.gameIsOver) {
-				commit('resetGame');
-				return;
-			}
-
-			if (!state.isBotTurn && state.squares[index].value === "") {
-				commit('setSquareValue', { value: "X", index });
-				commit('toggleTurn');
-				commit('calculateWinner');
-			}
-
-			if (!state.gameIsOver) {
-				commit('botHandler');
-				commit('calculateWinner');
+		/**
+		 * Запускает предыдущую игру, на основе того режима,
+		 * который был прерван в прошлой игре
+		 */
+		loadGame({ state, commit, dispatch }) {
+			const mode = localStorage.getItem('mode');
+			if (!mode) return;
+			
+			switch (mode) {
+				case 'single-player':
+					if (state.mode) return;
+					commit('initSinglePlayerOptions');
+					if (state.bot.isHisTurn) {
+						dispatch('botHandler');
+					}
+					commit('setSquaresValues');
+					commit('setMode', mode);
+					return;
+				case 'multiplayer':
+					if (state.mode) return;
+					commit('initMultiplayerOptions');
+					commit('setSquaresValues');
+					commit('setMode', mode);
+					return;
 			}
 		},
-		multiplayerModeHandler({ commit, state, getters }, index) {
-			if (getters.emptySquaresCount === 0) {
-				commit('calculateWinner');
-				commit('toggleGameOverOption');
+		/** 
+		 * Входная точка, устанавливает глобальные настройки приложения
+		 * @param {String} mode - Режим игры, который выбрал пользователь
+		 */
+		initGame({ commit, state, dispatch }, mode) {
+			if (localStorage.getItem('mode') === 'multiplayer' && mode === 'single-player') {
+				localStorage.setItem('resetOtherGames', true);
+				storage.clearStorage();
 			}
-			if (state.gameIsOver) {
-				commit('resetGame', true);
+			if (localStorage.getItem('mode') === 'single-player' && mode === 'multiplayer') {
+				storage.clearStorage();
+			}
+		
+			commit('setMode', mode);
+			if (!localStorage.getItem('mode')) {
+				storage.initOptions(mode);
+				storage.setSymbols();
+				storage.setTurn();
+				commit ('setTurn');
+			}
+
+			if (mode === 'multiplayer') {
+				
+				commit('initMultiplayerOptions');
+			}
+
+			if (mode === 'single-player') {
+				commit('initSinglePlayerOptions');
+				if (state.bot.isHisTurn) {
+					dispatch('botHandler');
+				}
+			}
+
+			commit('setSquaresValues');
+			commit ('setTurn');
+		},
+	
+		/**
+		 * Обрабатывает клик по ячейки
+		 * @param {Number} index - Индекс ячейки, по которой произошел клик
+		 */
+		onSquareClick({ state, commit, dispatch, getters }, index) {
+			if (state.mode && localStorage.getItem('mode') && localStorage.getItem('mode') !== state.mode) {
 				return;
 			}
-			if (!state.multiplayer.player.isHisTurn) return;
+
+			if (state.gameIsOver) {
+				storage.resetGame();
+				commit('setSquaresValues');
+				commit('resetHighlightedSquares');
+				commit('setGameIsOver')
+				if (state.bot.isHisTurn) {
+					dispatch('botHandler');
+					commit('setSquaresValues');
+				}
+				return;
+			}
+			if (getters.emptySquaresCount === 0) {
+				dispatch('calculateWinner', 'player');
+				storage.resetGame();
+				commit('setSquaresValues');
+
+				if (state.mode === 'single-player') {
+					storage.updateTurn();
+					commit('toggleTurn');
+					commit ('setTurn');
+				}
+				
+				if (state.bot.isHisTurn) {
+					dispatch('botHandler');
+					commit('setSquaresValues');
+				}
+				return;
+			}
+			if (!state.player.isHisTurn) return;
 			if (state.squares[index].value !== "") return;
 
-			commit('setSquareValue', { value: state.multiplayer.player.symbol, index });
+			storage.updateSquaresValues(state.player.symbol, index);
+			commit('setSquaresValues');
 
-			const multiplayerTurn = JSON.parse(localStorage.getItem('multiplayerTurn'));
-			for (let key in multiplayerTurn) {
-				multiplayerTurn[key] = !multiplayerTurn[key];
-			}
-			localStorage.setItem('multiplayerTurn', JSON.stringify(multiplayerTurn));
+			storage.updateTurn();
 			commit('toggleTurn');
-			commit('updateTurn');
-			commit('calculateWinner');
-		},
-		initMultiplayerMode({ commit }) {
-			if (!localStorage.getItem('history')) {
-				localStorage.setItem('history', '["", "", "", "", "", "", "", "", ""]');
-				localStorage.setItem('multiplayerTurn', '{"firstPlayerTurn": true, "secondPlayerTurn": false}');
-				localStorage.setItem('count', '{"firstPlayer": 0, "secondPlayer": 0}');
-				localStorage.setItem('winner', 0);
-				commit('setPlayerOptions', { id: 1, count: 0, symbol: "X" });
-			} else {
-				commit('updateSquares');
-				commit('updateCount');
-				commit('updateTurn');
-				commit('calculateWinner');
-				commit('setPlayerOptions', { id: 2, count: 0, symbol: "O" });
-			}
-
-			if (!localStorage.getItem('isFirstPlayerTurn')) {
-				localStorage.setItem('isFirstPlayerTurn', '0');
-			} else if (!localStorage.getItem('isSecondPlayerTurn')) {
-				localStorage.setItem('isSecondPlayerTurn', '1');
-			}
-		},
-	},
-	getters: {
-		isBotTurn(state) {
-			return state.isBotTurn;
-		},
-		squares(state) {
-			return state.squares;
-		},
-		mode(state) {
-			return state.mode;
-		},
-		gameIsOver(state) {
-			return state.gameIsOver;
-		},
-		firstPlayerCount(state) {
-			return state.multiplayer.count.firstPlayer;
+			commit ('setTurn');
+			dispatch('calculateWinner', 'player');
 			
-		},
-		playerCount(state) {
-			return state.singlePlayer.playerCount;
-		},
-		secondPlayerCount(state) {
-			return state.multiplayer.count.secondPlayer;
-		},
-		firstPlayerTurn(state) {
-			return state.multiplayer.turn.firstPlayerTurn;
-		},
-		secondPlayerTurn(state) {
-			return state.multiplayer.turn.secondPlayerTurn;
-		},
-		playerId(state) {
-			return state.multiplayer.player.id;
-		},
-		botCount(state) {
-			return state.singlePlayer.botCount;
-		},
-		emptySquaresCount(state) {
-			return state.squares.filter(square => square.value === "").length;
-		}
-	},
-	mutations: {
-		calculateWinner(state) {
+			if (state.mode !== 'multiplayer' && state.bot.isHisTurn && !state.gameIsOver) {
+				dispatch('botHandler');
+				commit('setSquaresValues');
+				dispatch('calculateWinner', 'bot');
+				
+			}
+			
+		
+		}, 
+		/**
+		 * Определяет победителя игры
+		 * @param {String} playerOrBot - В зависимости от значения "player" или "bot"
+		 * рассчитывает, кто выиграл игру
+		 */
+		calculateWinner({ state, commit }, playerOrBot) {
 			for (let index = 0; index < state.lines.length; index++) {
 				const line = state.lines[index];
+				const symbol = state[playerOrBot].symbol;
 				const [firstIndex, secondIndex, thirdIndex] = line;
+				
 				const firstSquare = state.squares[firstIndex];
 				const secondSqure = state.squares[secondIndex];
 				const thirdSquare = state.squares[thirdIndex];
-
-				if (firstSquare.value === "X" && secondSqure.value === "X" && thirdSquare.value === "X") {
-					firstSquare.isHighlighted = true;
-					secondSqure.isHighlighted = true;
-					thirdSquare.isHighlighted = true;
-					state.gameIsOver = true;
-					if (state.mode === "multiplayer" && state.multiplayer.player.id == "1") {
-						localStorage.setItem('winner', 1);
+			
+				if (firstSquare.value === symbol && secondSqure.value === symbol && thirdSquare.value === symbol) {	
 						
-						const storageCount = JSON.parse(localStorage.getItem('count'));
-						++storageCount.firstPlayer;
-						localStorage.setItem('count', JSON.stringify(storageCount));
+					storage.updateWinner(state[playerOrBot].id);
+					commit('setWinner');
+					
+					storage.toggleGameIsOver();
+					commit('setGameIsOver');
 
-						++state.multiplayer.count.firstPlayer;
-					}
-					if (state.mode === "single-player") {
-						++state.singlePlayer.playerCount;
-					}
-					break;
-				}
-				if (firstSquare.value === "O" && secondSqure.value === "O" && thirdSquare.value === "O") {
-					firstSquare.isHighlighted = true;
-					secondSqure.isHighlighted = true;
-					thirdSquare.isHighlighted = true;
-					state.gameIsOver = true;
-					if (state.mode === "multiplayer" && state.multiplayer.player.id == "2") {
-						localStorage.setItem('winner', 2);
+					commit('setCount'); 
+					storage.updateCount(state[playerOrBot].id);
+					commit('setCount');
 
-						const storageCount = JSON.parse(localStorage.getItem('count'));
-						++storageCount.secondPlayer;
-						localStorage.setItem('count', JSON.stringify(storageCount));
-
-						++state.multiplayer.count.secondPlayer;
-					}
-					if (state.mode === "single-player") {
-						++state.singlePlayer.botCount;
-					}
+					storage.updateHighlightedSquares([firstIndex, secondIndex, thirdIndex]);
+					commit('setHighlightedSquares');
 					break;
 				}
 			}
 		},
-		setMode(state, mode) {
-			state.mode = mode; 
+		/**
+		 * Отвечает за ход бота, анализирует ходы игрока
+		 */
+		botHandler({ state, commit, getters }) {
+			if (!state.bot.isHisTurn && state.gameIsOver) return;
+			const history = JSON.parse(localStorage.getItem('history'));
+			// const randomIndex = history.indexOf("");
+
+			// if (randomIndex !== -1) {
+			// 	// const randomIndex = Math.floor(Math.random() * emptySquares.length);
+			// 	history[randomIndex] = state.bot.symbol; 
+			// 	localStorage.setItem('history', JSON.stringify(history));
+			// }
+			// // else {
+			// // 	state.gameIsOver = true;
+			// // }
+			let index = history.indexOf(state.player.symbol);
+			const indices = [];
+			let target;
+			while (index !== -1) {
+				indices.push(index);
+				index = history.indexOf(state.player.symbol, index + 1);
+			}
+			const intersec = [];
+			for (let index = 0; index < state.lines.length; index++) {
+				const line = state.lines[index];
+				const temp = indices.filter(el => line.includes(el));
+				if (temp.length === 2) {
+					target = line.filter(el => temp.indexOf(el) === -1);
+					break;
+				}
+			}
+			debugger;
+			if (target) {
+				history[target] = state.bot.symbol;
+			} else {
+				const emptySquares = history.filter(el => el === "");
+				const randomIndex = Math.floor(Math.random() * emptySquares.length);
+				history[randomIndex] = state.bot.symbol; 
+			}
+			localStorage.setItem('history', JSON.stringify(history));
+
+			storage.updateTurn();
+			commit('toggleTurn');
+			commit ('setTurn');
 		},
-		updateSquares(state) {
+	},
+	mutations: {
+		/**
+		 * Меняет режим игры
+		 * @param {String} mode - Режим, который нужно изменить
+		 */
+		setMode(state, mode) {
+			state.mode = mode;
+		},
+		/**
+		 * Устанавливает текущие значение состояния игры из localStorage
+		 */
+		setGameIsOver(state) {
+			const gameIsOver = JSON.parse(localStorage.getItem('gameIsOver'));
+			state.gameIsOver = gameIsOver;
+		},
+		/**
+		 * Сбрасывает подсветку линии
+		 */
+		resetHighlightedSquares(state) {
+			for (let index = 0; index < state.squares.length; index++) {
+				const item = state.squares[index]
+				if (item.isHighlighted) {
+					item.isHighlighted = false;
+				}
+			}
+		},
+		/**
+		 * Устанавливает победителя, беря его id из localStorage 
+		 */
+		setWinner(state) {
+			const winner = JSON.parse(localStorage.getItem('winner'));
+			if (state.player.id === winner) {
+				state.player.isWinner = true;
+			}
+		},
+		/**
+		 * Сбрасывает ход игрока
+		 */
+		resetPlayerTurn(state) {
+			if (state.mode === 'single-player') {
+				state.player.isHisTurn = false;
+			}
+
+		/**
+		 * Устанавливает актуальные значения клеток из localStorage
+		 */
+		},
+		setSquaresValues(state) {
 			const history = JSON.parse(localStorage.getItem('history'));
 			state.squares.forEach((square, index) => {
 				square.value = history[index];
 			});
 		},
-		updateTurn(state) {
-			const turn = state.multiplayer.turn;
-			const storageTurn = JSON.parse(localStorage.getItem('multiplayerTurn'));
-			turn.firstPlayerTurn = storageTurn.firstPlayerTurn;
-			turn.secondPlayerTurn = storageTurn.secondPlayerTurn;
-		},
-		setSquareValue(state, { value, index }) {
-			const square = state.squares[index];
-			if (!square.value) {
-				square.value = value;
-				if (state.mode === 'multiplayer') {
-					const history = JSON.parse(localStorage.getItem('history'));
-					history[index] = value;
-					localStorage.setItem('history', JSON.stringify(history));
-				}
-			}
-
-		},
-		updateCount(state) {
-			const count = state.multiplayer.count;
-			const storageCount = JSON.parse(localStorage.getItem('count'));
-			count.firstPlayer = storageCount.firstPlayer;
-			count.secondPlayer = storageCount.secondPlayer;
-		},
-		botHandler(state) {
-			if (state.isBotTurn) {
-				const emptySquares = state.squares.filter(square => square.value === "");
-				state.isBotTurn = false;
-				if (emptySquares.length > 1) {
-					const randomIndex = Math.floor(Math.random() * emptySquares.length);
-					emptySquares[randomIndex].value = "O"; 
-				} else {
-					state.gameIsOver = true;
-				}
-
-			}
-		},
-		toggleGameOverOption(state) {
-			state.gameIsOver = !state.gameIsOver;
-		},
+		/**
+		 * Переключает очередь, чтобы установить значение клетки мог тот игрок,
+		 * у которого ключ isHisTurn со значение true
+		 */
 		toggleTurn(state) {
-			if (state.mode === "multiplayer") {
-				state.multiplayer.player.isHisTurn = !state.multiplayer.player.isHisTurn;
-			} else if (state.mode === "single-player") {
-				state.isBotTurn = !state.isBotTurn;
-			}
-			
+			state.player.isHisTurn = !state.player.isHisTurn;
+			if (state.mode === 'single-player') {
+				state.bot.isHisTurn = !state.bot.isHisTurn
+			} 
 		},
-		resetGame(state, resetStorage) {
-			if (resetStorage) {
-				const history = JSON.parse(localStorage.getItem('history'));
-				history.fill("");
-				localStorage.setItem('history', JSON.stringify(history));
-				localStorage.setItem('winner', 0);
-				
-				
-			}
-			state.gameIsOver = false;
-			state.isBotTurn = false;
-
-			state.squares.forEach(square => {
-				square.value = "";
-				if (square.isHighlighted) {
-					square.isHighlighted = false;
-				}
-			});
-
-
+		/**
+		 * Устанавливает, кто сейчас будет ходить
+		 */
+		setTurn(state) {
+			const turn = JSON.parse(localStorage.getItem('turn'));
+			state.turn.isFirstPlayerTurn = turn.isFirstPlayerTurn;
+			state.turn.isSecondPlayerTurn = turn.isSecondPlayerTurn;
 		},
-		setPlayerOptions(state, { id, count, symbol }) {
-			if (sessionStorage.getItem('id')) {
-				state.multiplayer.player.id = sessionStorage.getItem('id');
-				state.multiplayer.player.symbol = sessionStorage.getItem('symbol');
-			} else {
-				state.multiplayer.player.id = id;
-				state.multiplayer.player.symbol = symbol;
-				sessionStorage.setItem('id', id);
-				sessionStorage.setItem('symbol', symbol);
-			}
+		/**
+		 * Обновляет состояние текущего счета игроков/бота, беря значения
+		 * из localStorage
+		 */
+		setCount(state) {
+			const count = JSON.parse(localStorage.getItem('count'));
+			state.count.firstPlayer = Number(count.firstPlayer);
+			state.count.secondPlayer = Number(count.secondPlayer);
+		},
 
-			const turn = JSON.parse(localStorage.getItem('multiplayerTurn'));
-			if (state.multiplayer.player.id === 1) {
-				
-				state.multiplayer.player.isHisTurn = turn.firstPlayerTurn;
+
+		/**
+		 * Устанавливает подсветку линии, берет индексы клеток,
+		 * которые нужно подсветить из localStorage
+		 */
+		setHighlightedSquares(state) {
+			const highlightedSquaresIndices = JSON.parse(localStorage.getItem('highlightedSquaresIndices'));
+			if (highlightedSquaresIndices.length > 0) {
+				highlightedSquaresIndices.forEach(item => {
+					state.squares[item].isHighlighted = true;
+				});
 			}
-			if (state.multiplayer.player.id === 2) {
-				state.multiplayer.player.isHisTurn = turn.secondPlayerTurn;
+		},
+		/**
+		 * Инициализирует настройки бота и игрока, если режим находится в 'single-player'
+		 */
+		initSinglePlayerOptions(state) {
+			const { firstSymbol, secondSymbol } = JSON.parse(localStorage.getItem('symbols'));
+			const { isFirstPlayerTurn, isSecondPlayerTurn } = JSON.parse(localStorage.getItem('turn'));
+			state.player.id = 1;
+			state.player.symbol = firstSymbol;
+			state.player.isHisTurn = isFirstPlayerTurn;
+
+			state.bot.id = 2;
+			state.bot.symbol = secondSymbol;
+			state.bot.isHisTurn = isSecondPlayerTurn;
+		},
+		/**
+		 * Инициализирует настройки игрока, если режим находится в 'multiplayer'
+		 */
+		initMultiplayerOptions(state) {
+			const { firstSymbol, secondSymbol } = JSON.parse(localStorage.getItem('symbols'));
+			const { isFirstPlayerTurn, isSecondPlayerTurn } = JSON.parse(localStorage.getItem('turn'));
+			if (!localStorage.getItem('firstPlayerId')) {
+				storage.setPlayerId(1);
+				state.player.id = 1;
+				state.player.symbol = firstSymbol;
+				state.player.isHisTurn = isFirstPlayerTurn || false;
+			} else if (!localStorage.getItem('secondPlayerId')) {
+				storage.setPlayerId(2);
+				state.player.id = 2;
+				state.player.symbol = secondSymbol;
+				state.player.isHisTurn = isSecondPlayerTurn || false;
+			} else if (localStorage.getItem('firstPlayerId') && localStorage.getItem('secondPlayerId')) {
+				storage.setPlayerId(2);
+				state.player.id = 2;
+				state.player.symbol = secondSymbol;
+				state.player.isHisTurn = isSecondPlayerTurn || false;
 			}
-		}
+		},
+
+	},
+	getters: {
+		playerId(state) {
+			return state.player.id;
+		},
+		squares(state) {
+			return state.squares;
+		},
+		emptySquaresCount(state) {
+			return state.squares.filter(square => square.value === "").length;
+		},
+		firstPlayerCount(state) {
+			return state.count.firstPlayer;
+		},
+		secondPlayerCount(state) {
+			return state.count.secondPlayer;
+		},
+		mode(state) {
+			return state.mode;
+		},
+		isFirstPlayerTurn(state) {
+			return state.turn.isFirstPlayerTurn;
+		},
+		isSecondPlayerTurn(state) {
+			return state.turn.isSecondPlayerTurn;
+		},
+	// 	gameIsOver(state) {
+	// 		return state.gameIsOver;
+	// 	},
+
+	// 	playerCount(state) {
+	// 		return state.singlePlayer.playerCount;
+	// 	},
+
+
+	// 	playerId(state) {
+	// 		return state.multiplayer.player.id;
+	// 	},
+	// 	emptySquaresCount(state) {
+	// 		return state.squares.filter(square => square.value === "").length;
+	// 	}
 	},
 });

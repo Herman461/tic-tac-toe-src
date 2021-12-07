@@ -16,7 +16,7 @@
 
 
 <script>
-import { mapMutations, mapGetters } from 'vuex';
+import { mapGetters } from 'vuex';
 
 export default {
 	
@@ -24,27 +24,11 @@ export default {
 	components: {
 	},
 	computed: mapGetters([
-		'isBotTurn',
 		'squares',
-		'mode',
-		'gameIsOver',
-		'emptySquaresCount'
 	]),
 	methods: {
-		...mapMutations([
-			'calculateWinner',
-			'setSquareValue',
-			'botHandler',
-			'toggleTurn',
-			'resetGame',
-			'gameOver'
-		]),
 		onSquareClick(index) {
-			if (this.mode === 'single-player') {
-				this.$store.dispatch('singlePlayerModeHandler', index);
-			} else if (this.mode === 'multiplayer') {
-				this.$store.dispatch('multiplayerModeHandler', index);
-			}
+			this.$store.dispatch('onSquareClick', index);
 		}
 	},
 }

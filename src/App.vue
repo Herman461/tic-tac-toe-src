@@ -6,90 +6,69 @@
 					<v-menu></v-menu>
 				</div>
 			</header>
-			<div class="game__body body-game">
-				<div class="body-game__container _container">
-					<div class="body-game__player player">
-						<div class="player__name fas fa-user" :class="{_active: secondPlayerTurn}">{{ setName }}</div>
-						<div class="player__count">Count: {{ mode === 'single-player' ? botCount : secondPlayerCount }}</div>
-					</div>
-					<v-board></v-board>
-					<div class="body-game__player player">
-						<div class="player__name fas fa-user" :class="{_active: firstPlayerTurn}">Player 1</div>
-						<div class="player__count">Count: {{ mode === 'single-player' ? playerCount : firstPlayerCount }}</div>
-					</div>
-				</div>
-			</div>
+			<v-body></v-body>
 		</div>
 	</div>
 </template>
 
 <script>
 import vMenu from '@/components/vMenu';
-import vBoard from '@/components/vBoard';
+import vBody from '@/components/vBody';
 import { mapGetters, mapMutations } from 'vuex';
+import { removePlayerId } from './store/storage';
+
 export default {
 	name: "App",
 	components: {
 		vMenu,
-		vBoard
+		vBody
 	},
-	computed: {
-		...mapGetters([
-			'mode', 
-			'gameIsOver', 
-			'emptySquaresCount',
-			'botCount',
-			'playerCount', 
-			'firstPlayerCount', 
-			'secondPlayerCount',
-			'firstPlayerTurn',
-			'secondPlayerTurn'
-		]),
-		setName() {
-			if (this.mode === "single-player") {
-				return "Bot";
-			} else if (this.mode === "multiplayer") {
-				return "Player 2";
-			}
-		}
-	},
-	methods: {
-		...mapMutations([
-			'updateSquares', 
-			'calculateWinner', 
-			'toggleTurn',
-			'updateCount',
-			'updateTurn',
-			'resetGame',
-		]),
-		onStorageUpdate(e) {
-			if (e.key === 'history') {
-				this.updateSquares();
-			
-				if (this.gameIsOver) {
-					this.resetGame();
-					return;
-				}
-				
-				this.calculateWinner();
-				
-			}
-			if (e.key === 'count') {
-				this.updateCount();
-			}
-			if (e.key === 'multiplayerTurn') {
-				this.updateTurn();
-				this.toggleTurn();
-			}
-		}
-	},
-	created() {
-		if (this.mode === 'multiplayer') {
-			this.$store.dispatch('initMultiplayerMode')
-		}
-	},
+	computed: mapGetters(['playerId']),
+	methods: mapMutations([
+		'setSquaresValues', 
+		'setMode', 
+		'toggleTurn',
+		'setTurn',
+		'setWinner', 
+		'setHighlightedSquares', 
+		'setGameIsOver', 
+		'setCount', 
+		'resetHighlightedSquares'
+	]),
 	mounted() {
-		window.addEventListener('storage', this.onStorageUpdate)
+		window.addEventListener('unload', () => {
+			removePlayerId(this.playerId);
+		});
+		window.addEventListener('storage', (e) => {
+			switch (e.key) {
+				case 'history':
+					this.setSquaresValues();
+					break;
+				case 'turn':
+					this.setTurn();
+					this.toggleTurn();
+					break;
+				case 'winner':
+					this.setWinner();
+					break;
+				case 'highlightedSquaresIndices':
+					this.setHighlightedSquares();
+					break;
+				case 'gameIsOver':
+					this.setGameIsOver();
+					break;
+				case 'count':
+					this.setCount();
+					break;
+				case 'resetGame':
+					if (JSON.parse(localStorage.getItem('resetGame'))) {
+						this.resetHighlightedSquares();
+						this.setGameIsOver();
+					}
+					localStorage.setItem('resetGame', false);
+					break;
+			}
+		});
 	}
 };
 </script>

@@ -7,33 +7,42 @@
 		</button>
 		<div class="menu__body" :class="{ _active: isActive }">
 			<ul class="menu__list">
-				<li class="menu__item"><a class="menu__link fas fa-user-friends" @click.prevent="setMode('multiplayer'), toggleBurger()" href=""><span>Start new game with another player</span></a></li>
-				<li class="menu__item"><a class="menu__link fas fa-robot" @click.prevent="setMode('single-player'), toggleBurger()" href=""><span>Start new game with bot</span></a></li>
-				<li class="menu__item"><a class="menu__link fas fa-spinner" @click.prevent="loadPreviousGame(), toggleBurger()" href=""><span>Load game</span></a></li>
+				<li class="menu__item"><a class="menu__link fas fa-user-friends" @click.prevent="toggleBurger(), initGame('multiplayer')" href=""><span>Start new game with another player</span></a></li>
+				<li class="menu__item"><a class="menu__link fas fa-robot" @click.prevent="toggleBurger(), initGame('single-player')" href=""><span>Start new game with bot</span></a></li>
+				<li class="menu__item"><a class="menu__link fas fa-spinner" @click.prevent="toggleBurger(), loadGame()" href=""><span>Load game</span></a></li>
 			</ul>
 		</div>
 	</div>
 </template>
 
 <script>
-import { mapMutations } from 'vuex';
+import { mapMutations, mapActions } from 'vuex';
 
 export default {
 
 	name: "vMenu",
 	data() {
 		return {
-			isActive: false
+			isActive: true
 		}
 	},
 	methods: {
 		...mapMutations([
-			'loadPreviousGame',
-			'setMode'
+			// 'loadPreviousGame',
+			// 'setMode'
+		]),
+		...mapActions([
+			'initGame',
 		]),
 		toggleBurger() {
 			this.isActive = !this.isActive;
 		},
+		initGame(mode) {
+			this.$store.dispatch('initGame', mode);
+		},
+		loadGame() {
+			this.$store.dispatch('loadGame');
+		}
 	}
 }
 </script>
